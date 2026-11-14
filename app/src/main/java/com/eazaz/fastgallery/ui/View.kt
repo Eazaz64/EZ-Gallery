@@ -44,6 +44,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,7 +89,7 @@ private fun SystemBars(visible: Boolean) {
 // =================== Viewer ===================
 
 @Composable
-fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
+fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int, targetPath: String? = null) {
     val c = LocalAppColors.current
     val ctx = LocalContext.current
     val (folder, images) = rememberFolderImages(vm, folderPath)
@@ -101,7 +102,19 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
         Box(Modifier.fillMaxSize().background(c.viewerBg)); return
     }
 
-    val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, list.size - 1)) { list.size }
+    // Find the image by its path (positions can shift when files are added, e.g. an edited copy).
+    val first = targetPath?.let { p -> list.indexOfFirst { it.path == p }.takeIf { it >= 0 } } ?: startIndex
+    val pager = rememberPagerState(initialPage = first.coerceIn(0, list.size - 1)) { list.size }
+    var targetDone by rememberSaveable(targetPath) { mutableStateOf(false) }
+    LaunchedEffect(list, targetPath) {
+        if (targetPath != null && !targetDone) {
+            val i = list.indexOfFirst { it.path == targetPath }
+            if (i >= 0) {
+                if (pager.currentPage != i) pager.scrollToPage(i)
+                targetDone = true
+            }
+        }
+    }
     var bars by remember { mutableStateOf(true) }
     var menu by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf("") }

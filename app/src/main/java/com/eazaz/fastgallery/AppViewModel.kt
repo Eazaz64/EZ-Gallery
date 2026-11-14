@@ -18,6 +18,7 @@ import com.eazaz.fastgallery.data.DateParse
 import com.eazaz.fastgallery.data.Sorts
 import com.eazaz.fastgallery.data.path
 import com.eazaz.fastgallery.data.resolvePath
+import com.eazaz.fastgallery.data.normalizeRoots
 import com.eazaz.fastgallery.ui.EditRender
 import com.eazaz.fastgallery.ui.EditState
 import android.net.Uri
@@ -36,7 +37,8 @@ import kotlinx.coroutines.withContext
 sealed interface Screen {
     data object Home : Screen
     data class Folder(val path: String) : Screen
-    data class Viewer(val folder: String, val index: Int) : Screen
+    /** path = the exact image to show (index is only a first guess while the list loads). */
+    data class Viewer(val folder: String, val index: Int, val path: String? = null) : Screen
     data class Slideshow(val folder: String, val start: Int) : Screen
     data object Settings : Screen
     data object Colors : Screen
@@ -48,7 +50,7 @@ sealed interface Screen {
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val dao = AppDb.get(app).dao()
     val settings = SettingsStore(app)
-    val scanner = Scanner(dao)
+    val scanner = Scanner(dao, app)
     val ops = FileOps(app, dao) { settings.state.roots }
     val thumbs get() = App.instance.thumbs
 
@@ -85,10 +87,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // Main folders saved with the wrong user's storage path (e.g. /storage/emulated/0
         // while running in Second Space at /storage/emulated/10): fix them automatically.
         val primary = android.os.Environment.getExternalStorageDirectory().absolutePath.trimEnd('/')
-        val fixed = settings.state.roots.map { r ->
+        val fixed = normalizeRoots(settings.state.roots.map { r ->
             val m = Regex("^/storage/emulated/\\d+").find(r)
             if (m != null && m.value != primary && !java.io.File(r).isDirectory) primary + r.substring(m.value.length) else r
-        }.distinct()
+        })
         if (fixed != settings.state.roots) settings.update { it.copy(roots = fixed) }
     }
 
@@ -96,8 +98,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         hasPermission = granted
         // Pick up new / deleted images every time the app comes back (fast: only changed folders are read).
         val now = System.currentTimeMillis()
-        if (granted && settings.state.roots.isNotEmpty() && now - lastAutoScan > 15_000) {
+        val s = settings.state
+        if (granted && (s.autoFind || s.roots.isNotEmpty()) && now - lastAutoScan > 15_000) {
             lastAutoScan = now
+            // Very first run: show the progress screen while the index is read once.
+            if (s.lastScan == 0L && stack.size == 1 && externalUri == null) resetTo(Screen.Home, Screen.Scan)
             startScan()
         }
         if (!trimmed) {
@@ -121,7 +126,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (idx >= 0) {
                     sortedCache[f.path] = list
                     externalUri = null
-                    resetTo(Screen.Home, Screen.Folder(f.path), Screen.Viewer(f.path, idx))
+                    resetTo(Screen.Home, Screen.Folder(f.path), Screen.Viewer(f.path, idx, path))
                     return@launch
                 }
             }
@@ -138,12 +143,45 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return Sorts.images(dao.images(f.path), key, asc)
     }
 
-    fun startScan() {
+    private var pendingFull = false
+
+    fun startScan(forceFull: Boolean = false) {
+        if (forceFull) pendingFull = true
         viewModelScope.launch {
             val s = settings.state
-            scanner.scan(s.roots, s.depth)
+            val full = pendingFull
+            pendingFull = false
+            scanner.scan(s.autoFind, s.roots, s.depth, s.excludes, full)
             settings.update { it.copy(lastScan = System.currentTimeMillis()) }
         }
+    }
+
+    fun setAutoFind(on: Boolean) {
+        settings.update { it.copy(autoFind = on) }
+        startScan(forceFull = true)
+    }
+
+    fun addRoot(path: String) {
+        settings.update { it.copy(roots = normalizeRoots(it.roots + path)) }
+    }
+
+    /** Stop scanning an extra folder: its folders leave the gallery unless Android's index still lists them. */
+    fun removeRoot(root: String) = viewModelScope.launch {
+        settings.update { it.copy(roots = it.roots - root) }
+        dao.folderPathsWithRoot(root).forEach { dao.removeFolder(it) }
+        startScan(forceFull = true)
+    }
+
+    /** Hide a folder (and its subfolders) from Fast Gallery. Files are not touched. */
+    fun excludeFolder(path: String) = viewModelScope.launch {
+        settings.update { it.copy(excludes = (it.excludes + path).distinct()) }
+        dao.removeTree(path)
+        toast("Excluded. Undo in Settings → Folders")
+    }
+
+    fun unexclude(path: String) {
+        settings.update { it.copy(excludes = it.excludes - path) }
+        startScan(forceFull = true)
     }
 
     fun toast(msg: String) = Toast.makeText(getApplication(), msg, Toast.LENGTH_SHORT).show()
@@ -185,6 +223,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val orig = File(path)
             ops.addFile(out, DateParse.taken(orig.name, orig.lastModified()))
             toast("Saved as copy: ${out.name}")
+            // Close the editor and show the edited copy in the viewer.
+            val folderPath = out.parent ?: ""
+            val f = dao.folder(folderPath)
+            val list = if (f != null) withContext(Dispatchers.Default) { sortedImages(f) } else emptyList()
+            if (list.isNotEmpty()) sortedCache[folderPath] = list
+            val idx = list.indexOfFirst { it.path == out.path }.coerceAtLeast(0)
+            if (stack.lastOrNull() is Screen.Editor) stack.removeAt(stack.lastIndex)
+            val top = stack.lastOrNull()
+            if (top is Screen.Viewer && top.folder == folderPath) {
+                stack[stack.lastIndex] = Screen.Viewer(folderPath, idx, out.path)
+            } else {
+                push(Screen.Viewer(folderPath, idx, out.path))
+            }
         } else {
             toast("Could not save the edited image")
         }

@@ -1,5 +1,7 @@
 package com.eazaz.fastgallery.data
 
+import android.content.Context
+import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,7 +28,10 @@ val IMAGE_EXT = setOf("webp", "jpg", "jpeg", "png", "heic", "heif", "bmp", "avif
  *    sub-folders are looked for (names already known as images are skipped)
  *  - one stat per image (size + time together)
  */
-class Scanner(private val dao: GalleryDao) {
+/** Folders found through Android's media index get this as their "root". */
+const val MEDIA_ROOT = "@media"
+
+class Scanner(private val dao: GalleryDao, private val ctx: Context) {
 
     data class Progress(
         val running: Boolean = false,
@@ -40,9 +45,23 @@ class Scanner(private val dao: GalleryDao) {
     private val _progress = MutableStateFlow(Progress())
     val progress: StateFlow<Progress> = _progress
     private val mutex = Mutex()
+    private val sp = ctx.getSharedPreferences("mediastore", Context.MODE_PRIVATE)
 
-    suspend fun scan(roots: List<String>, maxDepth: Int) = withContext(Dispatchers.IO) {
-        if (!mutex.tryLock()) return@withContext
+    /**
+     * autoFind: use Android's media index (MediaStore) to find every folder with images, like other galleries.
+     *   The full index is read only the first time; after that only what changed (generation counter).
+     * roots: extra folders walked with all their subfolders (also finds folders Android skips, e.g. with .nomedia).
+     * excludes: folders (and their subfolders) never shown.
+     * Image lists always come from the folders on disk; unchanged folders (same modified time) are not re-read.
+     */
+    suspend fun scan(
+        autoFind: Boolean,
+        roots: List<String>,
+        maxDepth: Int,
+        excludes: List<String>,
+        forceFull: Boolean = false,
+    ) = withContext(Dispatchers.IO) {
+        mutex.lock() // a second request waits for the running scan, then runs once more
         try {
             _progress.value = Progress(running = true)
             val existing = dao.allFolders().associateBy { it.path }
@@ -51,11 +70,33 @@ class Scanner(private val dao: GalleryDao) {
             val total = AtomicInteger()
             val images = AtomicInteger()
             val par = Dispatchers.IO.limitedParallelism(6)
+            fun excluded(p: String) = excludes.any { p == it || p.startsWith("$it/") }
 
-            val cleanRoots = roots.map { it.trimEnd('/') }.distinct().filter { File(it).isDirectory }
+            val cleanRoots = roots.map { it.trimEnd('/') }.distinct().filter { File(it).isDirectory && !excluded(it) }
+
+            // 1) Folders Android knows have images (+ the ones we already show), read one by one (no subfolders).
+            if (autoFind) {
+                val (dirs, full) = mediaDirs(forceFull)
+                val flat = LinkedHashSet<String>()
+                if (!full) flat += existing.values.filter { it.root == MEDIA_ROOT }.map { it.path }
+                flat += dirs
+                // folders inside an extra folder are handled by step 2 (avoid reading them twice)
+                val list = flat.filter { !excluded(it) && cleanRoots.none { r -> isInside(it, r) } }
+                total.addAndGet(list.size)
+                coroutineScope {
+                    list.map { dir ->
+                        async(par) {
+                            try { processDir(dir, MEDIA_ROOT, existing, seen, images) } catch (_: Exception) {}
+                            done.incrementAndGet()
+                            _progress.value = Progress(true, done.get(), total.get(), images.get(), dir)
+                        }
+                    }.awaitAll()
+                }
+            }
+
+            // 2) Extra folders: walk with subfolders, level by level.
             var level: List<Triple<String, String, Int>> = cleanRoots.map { Triple(it, it, 0) }
             total.addAndGet(level.size)
-
             while (level.isNotEmpty()) {
                 val current = level
                 level = coroutineScope {
@@ -68,7 +109,7 @@ class Scanner(private val dao: GalleryDao) {
                             }
                             done.incrementAndGet()
                             val nextDepth = depth + 1
-                            val keep = if (maxDepth >= 0 && nextDepth > maxDepth) emptyList() else subs
+                            val keep = if (maxDepth >= 0 && nextDepth > maxDepth) emptyList() else subs.filter { !excluded(it) }
                             total.addAndGet(keep.size)
                             _progress.value = Progress(true, done.get(), total.get(), images.get(), dir)
                             keep.map { Triple(it, root, nextDepth) }
@@ -82,6 +123,47 @@ class Scanner(private val dao: GalleryDao) {
         } finally {
             mutex.unlock()
         }
+    }
+
+    /** Folders with images from MediaStore. Returns (folders, wasFullRead).
+     *  Normally only images added/changed since the last call are read, which takes milliseconds. */
+    private fun mediaDirs(forceFull: Boolean): Pair<Set<String>, Boolean> {
+        val out = HashSet<String>()
+        val vols = try { MediaStore.getExternalVolumeNames(ctx).toList() } catch (_: Exception) { listOf(MediaStore.VOLUME_EXTERNAL_PRIMARY) }
+        val state = vols.map { v ->
+            val gen = try { MediaStore.getGeneration(ctx, v) } catch (_: Exception) { -1L }
+            val ver = try { MediaStore.getVersion(ctx, v) } catch (_: Exception) { "" }
+            Triple(v, gen, ver)
+        }
+        val full = forceFull || state.any { (v, _, ver) ->
+            sp.getLong("gen_$v", -1L) < 0 || sp.getString("ver_$v", null) != ver
+        }
+        val ed = sp.edit()
+        for ((v, gen, ver) in state) {
+            val lastGen = sp.getLong("gen_$v", -1L)
+            if (!full && gen >= 0 && gen == lastGen) continue
+            val uri = MediaStore.Images.Media.getContentUri(v)
+            val sel = if (full) null else "${MediaStore.MediaColumns.GENERATION_MODIFIED} > ?"
+            val args = if (full) null else arrayOf(lastGen.toString())
+            try {
+                @Suppress("DEPRECATION")
+                ctx.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), sel, args, null)?.use { c ->
+                    @Suppress("DEPRECATION")
+                    val i = c.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    if (i >= 0) while (c.moveToNext()) {
+                        val p = c.getString(i) ?: continue
+                        val ext = p.substringAfterLast('.', "").lowercase()
+                        if (ext !in IMAGE_EXT) continue
+                        val parent = p.substringBeforeLast('/', "")
+                        if (parent.isNotEmpty()) out += parent
+                    }
+                }
+                ed.putLong("gen_$v", gen).putString("ver_$v", ver)
+            } catch (_: Exception) {
+            }
+        }
+        ed.apply()
+        return out to full
     }
 
     private suspend fun processDir(
@@ -100,7 +182,7 @@ class Scanner(private val dao: GalleryDao) {
         if (old != null && old.dirMtime == mtime && old.dirMtime != 0L) {
             // Unchanged folder: images in DB are still correct; just find sub-folders.
             for (n in names) {
-                if (n.startsWith(".")) continue
+                if (n.startsWith(".") || isAndroidAppFolder(dir, n)) continue
                 if (n.substringAfterLast('.', "").lowercase() in IMAGE_EXT) continue
                 val c = File(f, n)
                 if (c.isDirectory) subdirs += c.path
@@ -112,7 +194,7 @@ class Scanner(private val dao: GalleryDao) {
 
         val imgs = ArrayList<ImageEntity>()
         for (n in names) {
-            if (n.startsWith(".")) continue
+            if (n.startsWith(".") || isAndroidAppFolder(dir, n)) continue
             val c = File(f, n)
             val ext = n.substringAfterLast('.', "").lowercase()
             if (ext in IMAGE_EXT) {

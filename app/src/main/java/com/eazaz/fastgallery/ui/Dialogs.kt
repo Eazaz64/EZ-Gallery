@@ -190,6 +190,7 @@ fun FolderMenuHost(vm: AppViewModel, folder: FolderEntity, onDismiss: () -> Unit
             SheetAction(AppIcons.Play, "Slideshow this folder") { mode = "slideshow" }
             SheetAction(AppIcons.Sort, "Sort this folder…") { mode = "sort" }
             SheetAction(AppIcons.Info, "Folder info") { mode = "info" }
+            SheetAction(AppIcons.Close, "Exclude from gallery", c.subtext) { vm.excludeFolder(folder.path); onDismiss() }
         }
         "rename" -> RenameDialog("Rename folder", folder.name, "", onDismiss) { vm.renameFolder(folder, it); onDismiss() }
         "slideshow" -> SlideshowSheet(vm, canStartHere = false, onDismiss = onDismiss) { _ ->

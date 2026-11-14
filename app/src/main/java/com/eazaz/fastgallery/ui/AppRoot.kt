@@ -92,7 +92,7 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
                     if (vm.stack.size <= 1) activity.finish()
                 }
                 !vm.hasPermission -> PermissionScreen()
-                s.roots.isEmpty() -> RootsScreen(vm, firstRun = true)
+                s.roots.isEmpty() && !s.autoFind -> RootsScreen(vm, firstRun = true)
                 else -> {
                     val holder = rememberSaveableStateHolder()
                     BackHandler(enabled = vm.stack.size > 1) { vm.back() }
@@ -109,7 +109,7 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
                                 when (scr) {
                                     Screen.Home -> HomeScreen(vm)
                                     is Screen.Folder -> FolderScreen(vm, scr.path)
-                                    is Screen.Viewer -> ViewerScreen(vm, scr.folder, scr.index)
+                                    is Screen.Viewer -> ViewerScreen(vm, scr.folder, scr.index, scr.path)
                                     is Screen.Slideshow -> SlideshowScreen(vm, scr.folder, scr.start)
                                     Screen.Settings -> SettingsScreen(vm)
                                     Screen.Colors -> ColorsScreen(vm)

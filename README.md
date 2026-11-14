@@ -4,7 +4,8 @@ A fast Android gallery for very large image collections (400,000+ WebP/JPEG imag
 Personal use: it uses "All files access" so it can read and change your folders directly.
 
 ## Features
-- Scans only your **main folders** (not the whole storage). After the first scan, only changed folders are re-read.
+- **Finds images automatically** like other galleries, using Android's media index (camera, screenshots, WhatsApp, downloads…); app junk marked with `.nomedia` is skipped. The full index is read once; after that only changes are checked.
+- **Extra folders** for anything Android doesn't list, and **Exclude from gallery** for folders you don't want (Settings → Folders).
 - Folder grid (home) with **pinned folders** on top, fast scroller, sort chip
 - Image grid inside a folder, **pinch to change columns**, fast scroller with date bubble
 - Multi-select: long-press, then **drag to select a range**, select all, **move to folder**, **delete** (permanent)
@@ -33,5 +34,4 @@ so a new APK installs **over** the old one and your scan data, pins and settings
 
 ## First run
 1. Allow **All files access** when asked.
-2. Choose your main folder (the "mother" folder that holds your image folders).
-3. Tap **Scan main folders**. You can browse while it scans.
+2. The first scan starts by itself. You can browse while it runs.

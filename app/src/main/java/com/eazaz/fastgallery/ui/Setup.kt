@@ -54,6 +54,11 @@ import com.eazaz.fastgallery.AppViewModel
 import com.eazaz.fastgallery.Screen
 import com.eazaz.fastgallery.data.AppSettings
 import com.eazaz.fastgallery.data.shortPath
+import com.eazaz.fastgallery.data.FolderSuggestion
+import com.eazaz.fastgallery.data.findImageFolders
+import com.eazaz.fastgallery.data.isCovered
+import com.eazaz.fastgallery.data.MEDIA_ROOT
+import androidx.compose.runtime.produceState
 import com.eazaz.fastgallery.data.treeUriToPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -98,17 +103,41 @@ fun RootsScreen(vm: AppViewModel, firstRun: Boolean) {
     val c = LocalAppColors.current
     val s = vm.settings.state
     val folders by remember { vm.dao.foldersFlow() }.collectAsState(initial = emptyList())
+    val ctx = LocalContext.current
+    val suggestions by produceState<List<FolderSuggestion>?>(null) {
+        value = withContext(Dispatchers.IO) { findImageFolders(ctx) }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val p = uri?.let { treeUriToPath(it) } ?: return@rememberLauncherForActivityResult
-        if (p !in s.roots) vm.settings.update { it.copy(roots = it.roots + p) }
+        vm.addRoot(p)
     }
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        TopBar("Main folders", onBack = if (firstRun) null else ({ vm.back() }), large = firstRun)
+        TopBar("Folders", onBack = if (firstRun) null else ({ vm.back() }), large = firstRun)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+            // --- Automatic (like other galleries)
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.field).padding(horizontal = 14.dp, vertical = 6.dp)) {
+                SwitchRow(
+                    "Find images automatically",
+                    s.autoFind,
+                    "Shows every folder Android knows has images (camera, screenshots, WhatsApp, downloads…), like other galleries. " +
+                        "App junk marked with .nomedia (stickers, thumbnails) is skipped.",
+                ) { vm.setAutoFind(it) }
+                if (s.autoFind) {
+                    val auto = folders.filter { it.root == MEDIA_ROOT }
+                    Text(
+                        "${fmtNum(auto.size)} folders · ${fmtNum(auto.sumOf { it.imageCount })} images found automatically",
+                        fontSize = 12.sp, color = c.subtext, modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+            }
+
+            // --- Extra folders
+            SectionLabel("Extra folders", Modifier.padding(top = 16.dp))
             Text(
-                "Only these folders and everything inside them are scanned. The rest of your storage is ignored.",
-                fontSize = 14.sp, color = c.subtext, modifier = Modifier.padding(start = 4.dp, bottom = 16.dp),
+                if (s.autoFind) "Only needed for folders Android doesn't list (for example ones with a .nomedia file). Scanned with all subfolders."
+                else "Only these folders and everything inside them are scanned.",
+                fontSize = 12.sp, color = c.subtext, modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
             )
             s.roots.forEach { root ->
                 val inRoot = folders.filter { it.root == root }
@@ -122,19 +151,17 @@ fun RootsScreen(vm: AppViewModel, firstRun: Boolean) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(shortPath(root), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(shortPath(root).ifEmpty { "Whole internal storage" }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             if (inRoot.isEmpty()) "Not scanned yet" else "${fmtNum(inRoot.size)} folders · ${fmtNum(inRoot.sumOf { it.imageCount })} images",
                             fontSize = 12.sp, color = c.subtext,
                         )
                     }
-                    IconBtn(AppIcons.Close, "Remove folder", c.subtext) {
-                        vm.settings.update { it.copy(roots = it.roots - root) }
-                    }
+                    IconBtn(AppIcons.Close, "Remove folder", c.subtext) { vm.removeRoot(root) }
                 }
             }
             Box(
-                Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(14.dp))
+                Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp))
                     .border(2.dp, c.subtext.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
                     .clickable { picker.launch(null) },
                 contentAlignment = Alignment.Center,
@@ -142,30 +169,79 @@ fun RootsScreen(vm: AppViewModel, firstRun: Boolean) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(AppIcons.Plus, null, tint = c.accent, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Add main folder", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.accent)
+                    Text("Add extra folder", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.accent)
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(top = 24.dp).clip(RoundedCornerShape(14.dp)).background(c.field).padding(14.dp)) {
-                Text("Include subfolders up to", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(10.dp))
-                Segmented(listOf("1" to "1 level", "3" to "3 levels", "-1" to "All levels"), s.depth.toString()) { v ->
-                    vm.settings.update { it.copy(depth = v.toInt()) }
+            if (s.roots.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    Text("Include subfolders of extra folders up to", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Segmented(listOf("1" to "1 level", "3" to "3 levels", "-1" to "All levels"), s.depth.toString()) { v ->
+                        vm.settings.update { it.copy(depth = v.toInt()) }
+                    }
                 }
+            }
+
+            // --- Suggestions (only useful when automatic finding is off)
+            if (!s.autoFind) {
+                SectionLabel("Found on this phone", Modifier.padding(top = 16.dp))
+                val sug = suggestions
+                if (sug == null) {
+                    Text("Looking for image folders…", fontSize = 13.sp, color = c.subtext, modifier = Modifier.padding(vertical = 8.dp))
+                } else {
+                    sug.forEach { f ->
+                        val covered = isCovered(f.path, s.roots)
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(f.label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${shortPath(f.path).ifEmpty { "/" }} · about ${fmtNum(f.count)} images", fontSize = 12.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (covered) {
+                                Text("Included", fontSize = 13.sp, color = c.subtext, modifier = Modifier.padding(horizontal = 12.dp))
+                            } else {
+                                Text(
+                                    "Add", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.accent,
+                                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(c.chipBg)
+                                        .clickable { vm.addRoot(f.path) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Excluded
+            SectionLabel("Excluded folders", Modifier.padding(top = 16.dp))
+            if (s.excludes.isEmpty()) {
                 Text(
-                    "Every subfolder with images shows as its own folder on the home grid.",
-                    fontSize = 12.sp, color = c.subtext, modifier = Modifier.padding(top = 8.dp),
+                    "None. Long-press a folder on the home screen → Exclude from gallery.",
+                    fontSize = 12.sp, color = c.subtext, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
                 )
+            } else {
+                s.excludes.forEach { ex ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(ex.substringAfterLast('/'), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(shortPath(ex), fontSize = 12.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(
+                            "Show again", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.accent,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { vm.unexclude(ex) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
             }
+            Spacer(Modifier.height(16.dp))
         }
         Button(
             onClick = {
                 vm.startScan()
                 vm.resetTo(Screen.Home, Screen.Scan)
             },
-            enabled = s.roots.isNotEmpty(),
+            enabled = s.autoFind || s.roots.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
             shape = RoundedCornerShape(14.dp),
-        ) { Text("Scan main folders", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+        ) { Text("Scan now", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -189,8 +265,8 @@ fun ScanScreen(vm: AppViewModel) {
         Text("Finding your images", fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Scanning only your main folder${if (s.roots.size > 1) "s" else ""} — the rest of storage is skipped. " +
-                "This happens once; next time only changed folders are checked.",
+            (if (s.autoFind) "Reading Android's list of image folders" else "Scanning your extra folders") +
+                ". This full read happens once; after that only changes are checked, in a moment.",
             fontSize = 15.sp, color = c.subtext,
         )
         Spacer(Modifier.height(28.dp))
@@ -272,16 +348,18 @@ fun SettingsScreen(vm: AppViewModel) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Group("Storage")
             SettingRow(
-                "Main folders",
-                s.roots.joinToString(" + ") { shortPath(it) }.ifEmpty { "None" } + " · only these are scanned",
+                "Folders",
+                (if (s.autoFind) "Automatic" else "Only extra folders") +
+                    (if (s.roots.isNotEmpty()) " + ${s.roots.size} extra" else "") +
+                    (if (s.excludes.isNotEmpty()) " · ${s.excludes.size} excluded" else ""),
                 "Change",
             ) { vm.push(Screen.Roots) }
             SettingRow(
-                "Rescan main folders",
+                "Rescan now",
                 if (p.running) "Scanning… ${fmtNum(p.done)} / ${fmtNum(p.total)} folders"
                 else "Last scan: ${fmtDate(s.lastScan)}",
                 if (p.running) null else "Scan",
-            ) { if (!p.running) vm.startScan() }
+            ) { if (!p.running) vm.startScan(forceFull = true) }
             SettingRow(
                 "Thumbnail cache",
                 (if (cacheBytes < 0) "Calculating…" else fmtSize(cacheBytes)) + " of ${fmtSize(s.cacheLimitMb * 1024L * 1024L)} limit",

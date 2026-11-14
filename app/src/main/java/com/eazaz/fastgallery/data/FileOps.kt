@@ -26,8 +26,9 @@ class FileOps(
         val newest = dao.newestImage(path)
         val old = dao.folder(path)
         val dir = File(path)
-        val root = roots().filter { path == it || path.startsWith("$it/") }.maxByOrNull { it.length }
-            ?: old?.root ?: (dir.parent ?: path)
+        val root = old?.root
+            ?: roots().filter { isInside(path, it) }.maxByOrNull { it.length }
+            ?: MEDIA_ROOT
         val base = old ?: FolderEntity(
             path = path, name = dir.name, root = root, imageCount = 0, totalSize = 0,
             coverPath = null, coverMtime = 0, dirMtime = 0, newestTaken = 0, newestModified = 0,

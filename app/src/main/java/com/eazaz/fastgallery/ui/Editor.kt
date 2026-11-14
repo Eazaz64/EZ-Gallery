@@ -269,7 +269,7 @@ fun EditorScreen(vm: AppViewModel, path: String) {
                 "Save", color = c.accent, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(enabled = !saving && preview != null) {
                     saving = true
-                    vm.saveEdit(path, st) { ok -> saving = false; if (ok) vm.back() }
+                    vm.saveEdit(path, st) { saving = false }
                 }.padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }

@@ -134,6 +134,22 @@ abstract class GalleryDao {
         upsertFolder(f)
     }
 
+    @Query("DELETE FROM images WHERE folder = :p OR substr(folder, 1, length(:p) + 1) = :p || '/'")
+    abstract suspend fun deleteImagesTree(p: String)
+
+    @Query("DELETE FROM folders WHERE path = :p OR substr(path, 1, length(:p) + 1) = :p || '/'")
+    abstract suspend fun deleteFoldersTree(p: String)
+
+    @Query("SELECT path FROM folders WHERE root = :root")
+    abstract suspend fun folderPathsWithRoot(root: String): List<String>
+
+    /** Remove a folder and everything inside it from the gallery (files are not touched). */
+    @Transaction
+    open suspend fun removeTree(p: String) {
+        deleteImagesTree(p)
+        deleteFoldersTree(p)
+    }
+
     @Transaction
     open suspend fun removeFolder(path: String) {
         deleteImagesOf(path)

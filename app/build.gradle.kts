@@ -15,8 +15,8 @@ android {
         applicationId = "com.eazaz.fastgallery"
         minSdk = 30
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.0"
+        versionCode = 7
+        versionName = "3.0"
     }
 
     // One fixed key in the repo, so every GitHub build can be installed

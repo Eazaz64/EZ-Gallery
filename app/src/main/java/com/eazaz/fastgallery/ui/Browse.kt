@@ -164,12 +164,12 @@ fun HomeScreen(vm: AppViewModel) {
             } else if (folders != null && folders!!.isEmpty()) {
                 Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (progress.running) "Scanning your main folders…" else "No images found in your main folders",
+                        if (progress.running) "Finding your images…" else "No images found",
                         fontSize = 16.sp, textAlign = TextAlign.Center,
                     )
                     if (!progress.running) {
                         Spacer(Modifier.height(16.dp))
-                        Button(onClick = { vm.push(Screen.Roots) }) { Text("Choose main folders") }
+                        Button(onClick = { vm.push(Screen.Roots) }) { Text("Folder settings") }
                     }
                 }
             } else {
@@ -397,7 +397,7 @@ fun FolderScreen(vm: AppViewModel, path: String) {
                         when {
                             longPressed -> longPressed = false
                             selecting -> selected = if (img.id in selected) selected - img.id else selected + img.id
-                            else -> vm.push(Screen.Viewer(path, i))
+                            else -> vm.push(Screen.Viewer(path, i, img.path))
                         }
                     }
                 }

@@ -6,7 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 data class AppSettings(
-    val roots: List<String> = emptyList(),
+    val autoFind: Boolean = true,          // find folders through Android's media index
+    val roots: List<String> = emptyList(), // extra folders (walked with subfolders)
+    val excludes: List<String> = emptyList(),
     val depth: Int = -1, // -1 = all levels
     val folderSortKey: String = "name",
     val folderSortAsc: Boolean = true,
@@ -44,7 +46,9 @@ class SettingsStore(ctx: Context) {
     private fun load(): AppSettings {
         val d = AppSettings()
         return AppSettings(
+            autoFind = sp.getBoolean("autoFind", d.autoFind),
             roots = (sp.getString("roots", "") ?: "").split('\n').filter { it.isNotBlank() },
+            excludes = (sp.getString("excludes", "") ?: "").split('\n').filter { it.isNotBlank() },
             depth = sp.getInt("depth", d.depth),
             folderSortKey = sp.getString("folderSortKey", d.folderSortKey) ?: d.folderSortKey,
             folderSortAsc = sp.getBoolean("folderSortAsc", d.folderSortAsc),
@@ -71,7 +75,9 @@ class SettingsStore(ctx: Context) {
 
     private fun save(s: AppSettings) {
         sp.edit()
+            .putBoolean("autoFind", s.autoFind)
             .putString("roots", s.roots.joinToString("\n"))
+            .putString("excludes", s.excludes.joinToString("\n"))
             .putInt("depth", s.depth)
             .putString("folderSortKey", s.folderSortKey)
             .putBoolean("folderSortAsc", s.folderSortAsc)
