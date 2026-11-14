@@ -61,6 +61,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,9 +80,7 @@ import com.eazaz.fastgallery.data.Sorts
 import com.eazaz.fastgallery.data.Thumb
 import com.eazaz.fastgallery.data.path
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onEach
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -89,11 +92,22 @@ import kotlin.math.min
 fun HomeScreen(vm: AppViewModel) {
     val c = LocalAppColors.current
     val s = vm.settings.state
-    // While scanning, the folder list changes very often: update the UI at most ~3x per second.
-    val folders by remember { vm.dao.foldersFlow().conflate().onEach { delay(300) } }.collectAsState(initial = null)
+    // Kept in memory by the view model, so it is ready instantly when you come back.
+    val folders by vm.folders.collectAsState()
     val progress by vm.scanner.progress.collectAsState()
-    val sorted = remember(folders, s.folderSortKey, s.folderSortAsc) {
-        Sorts.folders(folders ?: emptyList(), s.folderSortKey, s.folderSortAsc)
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    BackHandler(searching) { searching = false; query = "" }
+    val sorted = remember(folders, s.folderSortKey, s.folderSortAsc, query) {
+        val q = query.trim().lowercase()
+        val all = folders ?: emptyList()
+        val filtered = if (q.isEmpty()) all else all.filter { it.name.lowercase().contains(q) }
+        Sorts.folders(filtered, s.folderSortKey, s.folderSortAsc)
+    }
+    // Only show the scan bar if a scan takes longer than a second (quick refreshes stay invisible).
+    var showBar by remember { mutableStateOf(false) }
+    LaunchedEffect(progress.running) {
+        if (progress.running) { delay(1000); showBar = true } else showBar = false
     }
     val pinned = remember(sorted) { sorted.filter { it.pinned }.sortedBy { it.pinOrder } }
     val others = remember(sorted) { sorted.filter { !it.pinned } }
@@ -111,9 +125,25 @@ fun HomeScreen(vm: AppViewModel) {
     }
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        TopBar("Gallery", large = true) {
-            IconBtn(AppIcons.Sort, "Sort") { showSort = true }
-            IconBtn(AppIcons.More, "Settings") { vm.push(Screen.Settings) }
+        if (searching) {
+            val focus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            Row(Modifier.fillMaxWidth().height(60.dp).padding(start = 4.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconBtn(AppIcons.Back, "Close search") { searching = false; query = "" }
+                OutlinedTextField(
+                    value = query, onValueChange = { query = it }, singleLine = true,
+                    placeholder = { Text("Search folders") },
+                    leadingIcon = { Icon(AppIcons.Search, null, tint = c.subtext) },
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.accent),
+                    modifier = Modifier.weight(1f).focusRequester(focus),
+                )
+            }
+        } else {
+            TopBar("Gallery", large = true) {
+                IconBtn(AppIcons.Search, "Search folders") { searching = true }
+                IconBtn(AppIcons.Sort, "Sort") { showSort = true }
+                IconBtn(AppIcons.More, "Settings") { vm.push(Screen.Settings) }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -122,14 +152,16 @@ fun HomeScreen(vm: AppViewModel) {
             )
             Pill(sortLabel(s.folderSortKey, s.folderSortAsc)) { showSort = true }
         }
-        if (progress.running) {
+        if (progress.running && showBar) {
             LinearProgressIndicator(
                 progress = { if (progress.total == 0) 0f else progress.done.toFloat() / progress.total },
                 color = c.accent, trackColor = c.divider, modifier = Modifier.fillMaxWidth().height(3.dp),
             )
         }
         Box(Modifier.weight(1f)) {
-            if (folders != null && folders!!.isEmpty()) {
+            if (searching && query.isNotBlank() && sorted.isEmpty()) {
+                Text("No folder matches \"$query\"", color = c.subtext, modifier = Modifier.align(Alignment.Center))
+            } else if (folders != null && folders!!.isEmpty()) {
                 Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         if (progress.running) "Scanning your main folders…" else "No images found in your main folders",
@@ -222,6 +254,9 @@ fun FolderScreen(vm: AppViewModel, path: String) {
     var showDelete by remember { mutableStateOf(false) }
     var showMove by remember { mutableStateOf(false) }
     var showSlideshow by remember { mutableStateOf(false) }
+    var showCopy by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val selectedImages = { list.filter { it.id in selected } }
 
     BackHandler(selecting) { selected = emptySet() }
 
@@ -384,14 +419,20 @@ fun FolderScreen(vm: AppViewModel, path: String) {
             exit = shrinkVertically(tween(200)) + fadeOut(tween(160)),
         ) {
             Row(Modifier.fillMaxWidth().height(72.dp).background(c.appBg)) {
+                BottomAction(AppIcons.Share, "Share", c.text, Modifier.weight(1f)) { shareImages(ctx, selectedImages()) }
+                BottomAction(AppIcons.Copy, "Copy to", c.text, Modifier.weight(1f)) { showCopy = true }
                 BottomAction(AppIcons.Move, "Move to", c.text, Modifier.weight(1f)) { showMove = true }
                 BottomAction(AppIcons.Trash, "Delete", c.danger, Modifier.weight(1f)) { showDelete = true }
             }
         }
     }
 
-    val selectedImages = { list.filter { it.id in selected } }
     if (showSort) SortSheet(vm, folder, "images") { showSort = false }
+    if (showCopy) MoveDialog(vm, selected.size, folder, { showCopy = false }, action = "Copy") { target ->
+        showCopy = false
+        val l = selectedImages()
+        vm.copy(l, target) { selected = emptySet() }
+    }
     if (showMenu && folder != null) FolderMenuHost(vm, folder) { showMenu = false }
     if (showSlideshow) SlideshowSheet(vm, canStartHere = false, onDismiss = { showSlideshow = false }) { _ ->
         showSlideshow = false

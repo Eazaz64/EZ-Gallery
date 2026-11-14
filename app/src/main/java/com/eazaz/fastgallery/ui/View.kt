@@ -146,6 +146,8 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
                             MenuItem(AppIcons.Info, "Info") { menu = false; dialog = "info" }
                             MenuItem(AppIcons.Edit, "Rename") { menu = false; dialog = "rename" }
                             MenuItem(AppIcons.Wallpaper, "Set as wallpaper") { menu = false; dialog = "wallpaper" }
+                            MenuItem(AppIcons.Crop, "Edit") { menu = false; vm.push(Screen.Editor(current.path)) }
+                            MenuItem(AppIcons.Copy, "Copy to…") { menu = false; dialog = "copy" }
                             MenuItem(AppIcons.Move, "Move to…") { menu = false; dialog = "move" }
                             MenuItem(AppIcons.Play, "Slideshow from here") { menu = false; dialog = "slideshow" }
                             MenuItem(AppIcons.Trash, "Delete", c.danger) { menu = false; dialog = "delete" }
@@ -164,7 +166,8 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
                 Modifier.fillMaxWidth().background(c.barBg).navigationBarsPadding().height(76.dp),
             ) {
                 BottomAction(AppIcons.Play, "Slideshow", c.accent, Modifier.weight(1f)) { dialog = "slideshow" }
-                BottomAction(AppIcons.Wallpaper, "Wallpaper", c.barText, Modifier.weight(1f)) { dialog = "wallpaper" }
+                BottomAction(AppIcons.Share, "Share", c.barText, Modifier.weight(1f)) { shareImages(ctx, listOf(current)) }
+                BottomAction(AppIcons.Crop, "Edit", c.barText, Modifier.weight(1f)) { vm.push(Screen.Editor(current.path)) }
                 BottomAction(AppIcons.Move, "Move", c.barText, Modifier.weight(1f)) { dialog = "move" }
                 BottomAction(AppIcons.Trash, "Delete", c.danger, Modifier.weight(1f)) { dialog = "delete" }
             }
@@ -179,6 +182,7 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
         }
         "wallpaper" -> WallpaperDialog(close) { which -> close(); vm.setWallpaper(current.path, which) }
         "move" -> MoveDialog(vm, 1, folder, close) { target -> close(); vm.move(listOf(current), target) }
+        "copy" -> MoveDialog(vm, 1, folder, close, action = "Copy") { target -> close(); vm.copy(listOf(current), target) }
         "delete" -> DeleteDialog(1, close) { close(); vm.delete(listOf(current)) }
         "slideshow" -> SlideshowSheet(vm, canStartHere = true, onDismiss = close) { fromHere ->
             close(); vm.push(Screen.Slideshow(folderPath, if (fromHere) page else 0))
@@ -324,3 +328,32 @@ fun SlideshowScreen(vm: AppViewModel, folderPath: String, start: Int) {
     }
 }
 
+
+// =================== Image opened from another app (outside the main folders) ===================
+
+@Composable
+fun ExternalViewer(vm: AppViewModel, uri: android.net.Uri, onClose: () -> Unit) {
+    val c = LocalAppColors.current
+    var bars by remember { mutableStateOf(true) }
+    androidx.activity.compose.BackHandler { onClose() }
+    SystemBars(bars)
+    Box(Modifier.fillMaxSize().background(c.viewerBg)) {
+        ZoomableAsyncImage(
+            model = uri, contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            onClick = { bars = !bars },
+        )
+        AnimatedVisibility(
+            visible = bars, enter = fadeIn(tween(180)), exit = fadeOut(tween(160)),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Column(Modifier.fillMaxWidth().background(c.barBg).statusBarsPadding()) {
+                TopBar(
+                    title = uri.lastPathSegment?.substringAfterLast('/') ?: "Image",
+                    subtitle = "Not in your main folders",
+                    onBack = onClose, bg = c.barBg, fg = c.barText,
+                )
+            }
+        }
+    }
+}

@@ -14,6 +14,10 @@ Personal use: it uses "All files access" so it can read and change your folders 
 - Rename image (extension kept), rename folder, pin folder
 - **Colors by hex code**: app background, text, accent, viewer background, viewer bars
 - Thumbnail cache on disk with a size limit (default 1.5 GB)
+- **Open with / default gallery**: images opened from file managers or chat apps open in Fast Gallery (inside their folder if it's scanned)
+- **Share** one or many images, **Copy to folder**, **search folders** on the home screen
+- **Auto refresh**: new or deleted images are picked up each time you return to the app (only changed folders are read)
+- **Simple editor** (saved as a copy `name_edit.ext`, original kept): crop with aspect ratios, rotate, flip, straighten, brightness, contrast, resize
 
 "Date taken" is read from the file name (e.g. `IMG_20240312_161800.webp`); if the name has no date, the file's modified time is used. Reading EXIF from 400k files would make scanning far slower.
 

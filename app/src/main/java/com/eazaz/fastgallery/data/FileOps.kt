@@ -86,6 +86,40 @@ class FileOps(
         failed
     }
 
+    /** Copies files into target folder (originals stay). Returns failures. */
+    suspend fun copy(list: List<ImageEntity>, target: String): Int = withContext(Dispatchers.IO) {
+        val dest = File(target)
+        dest.mkdirs()
+        var failed = 0
+        val rows = ArrayList<ImageEntity>()
+        val paths = ArrayList<String>()
+        for (img in list) {
+            val src = File(img.path)
+            val name = uniqueName(dest, img.name)
+            val out = File(dest, name)
+            try {
+                src.copyTo(out, overwrite = false)
+                out.setLastModified(src.lastModified())
+                rows += ImageEntity(folder = target, name = name, size = out.length(), modified = out.lastModified(), taken = img.taken)
+                paths += out.path
+            } catch (_: Exception) {
+                out.delete(); failed++
+            }
+        }
+        rows.chunked(2000).forEach { dao.insertImages(it) }
+        refreshFolder(target)
+        mediaScan(paths)
+        failed
+    }
+
+    /** Register a new file (e.g. an edited copy) without a rescan. */
+    suspend fun addFile(file: File, taken: Long) = withContext(Dispatchers.IO) {
+        val parent = file.parent ?: return@withContext
+        dao.insertImages(listOf(ImageEntity(folder = parent, name = file.name, size = file.length(), modified = file.lastModified(), taken = taken)))
+        refreshFolder(parent)
+        mediaScan(listOf(file.path))
+    }
+
     fun uniqueName(dir: File, name: String): String {
         if (!File(dir, name).exists()) return name
         val dot = name.lastIndexOf('.')

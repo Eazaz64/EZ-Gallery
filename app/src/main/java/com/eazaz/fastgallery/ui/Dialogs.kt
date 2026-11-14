@@ -79,9 +79,12 @@ fun rememberFolderImages(vm: AppViewModel, path: String): Pair<FolderEntity?, Li
     val s = vm.settings.state
     val key = (if (s.rememberPerFolder) folder?.sortKey else null) ?: s.imageSortKey
     val asc = (if (s.rememberPerFolder) folder?.sortAsc else null) ?: s.imageSortAsc
-    val sorted by produceState<List<ImageEntity>?>(null, raw, key, asc) {
-        val r = raw
-        value = if (r == null) null else withContext(Dispatchers.Default) { Sorts.images(r, key, asc) }
+    // Start from the last list we showed for this folder, so the screen is never blank.
+    val sorted by produceState<List<ImageEntity>?>(vm.sortedCache[path], raw, key, asc) {
+        val r = raw ?: return@produceState
+        val result = withContext(Dispatchers.Default) { Sorts.images(r, key, asc) }
+        vm.sortedCache[path] = result
+        value = result
     }
     return folder to sorted
 }
@@ -320,7 +323,7 @@ fun WallpaperDialog(onDismiss: () -> Unit, onPick: (Int) -> Unit) {
 // ---------------- Move to folder ----------------
 
 @Composable
-fun MoveDialog(vm: AppViewModel, count: Int, current: FolderEntity?, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+fun MoveDialog(vm: AppViewModel, count: Int, current: FolderEntity?, onDismiss: () -> Unit, action: String = "Move", onPick: (String) -> Unit) {
     val c = LocalAppColors.current
     val all by remember { vm.dao.foldersFlow() }.collectAsState(initial = emptyList())
     var query by remember { mutableStateOf("") }
@@ -334,7 +337,7 @@ fun MoveDialog(vm: AppViewModel, count: Int, current: FolderEntity?, onDismiss: 
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(c.appBg).systemBarsPadding()) {
-            TopBar("Move $count ${if (count == 1) "image" else "images"} to…", onBack = onDismiss)
+            TopBar("$action $count ${if (count == 1) "image" else "images"} to…", onBack = onDismiss)
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
                 leadingIcon = { Icon(AppIcons.Search, null, tint = c.subtext) },
@@ -451,4 +454,35 @@ fun SlideshowSheet(vm: AppViewModel, canStartHere: Boolean, onDismiss: () -> Uni
     }
 }
 
-fun imageFile(img: ImageEntity) = File(img.path)
+/** Share images to other apps (WhatsApp, Telegram, ...). */
+fun shareImages(ctx: android.content.Context, list: List<ImageEntity>) {
+    if (list.isEmpty()) return
+    val max = 300
+    val items = list.take(max)
+    val auth = ctx.packageName + ".files"
+    val uris = ArrayList<android.net.Uri>()
+    for (img in items) {
+        try { uris += androidx.core.content.FileProvider.getUriForFile(ctx, auth, File(img.path)) } catch (_: Exception) {}
+    }
+    if (uris.isEmpty()) return
+    val intent = if (uris.size == 1) {
+        android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = when (items[0].ext) { "webp" -> "image/webp"; "png" -> "image/png"; "jpg", "jpeg" -> "image/jpeg"; else -> "image/*" }
+            putExtra(android.content.Intent.EXTRA_STREAM, uris[0])
+        }
+    } else {
+        android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "image/*"
+            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+        }
+    }
+    val clip = android.content.ClipData.newRawUri("images", uris[0])
+    for (i in 1 until uris.size) clip.addItem(android.content.ClipData.Item(uris[i]))
+    intent.clipData = clip
+    intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    try {
+        ctx.startActivity(android.content.Intent.createChooser(intent, "Share"))
+    } catch (_: Exception) {
+    }
+    if (list.size > max) android.widget.Toast.makeText(ctx, "Sharing the first $max images", android.widget.Toast.LENGTH_SHORT).show()
+}

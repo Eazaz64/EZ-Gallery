@@ -99,9 +99,8 @@ class Scanner(private val dao: GalleryDao) {
 
         if (old != null && old.dirMtime == mtime && old.dirMtime != 0L) {
             // Unchanged folder: images in DB are still correct; just find sub-folders.
-            val known = dao.imageNames(dir).toHashSet()
             for (n in names) {
-                if (n.startsWith(".") || n in known) continue
+                if (n.startsWith(".")) continue
                 if (n.substringAfterLast('.', "").lowercase() in IMAGE_EXT) continue
                 val c = File(f, n)
                 if (c.isDirectory) subdirs += c.path
@@ -131,7 +130,21 @@ class Scanner(private val dao: GalleryDao) {
         }
 
         if (imgs.isNotEmpty()) {
-            val newest = imgs.maxBy { it.taken }
+            // Keep rows (and IDs) of files that are unchanged; insert only new/changed ones.
+            val oldImgs = if (old != null) dao.images(dir).associateBy { it.name } else emptyMap()
+            val finalList = ArrayList<ImageEntity>(imgs.size)
+            val inserts = ArrayList<ImageEntity>()
+            val keep = HashSet<Long>()
+            for (n in imgs) {
+                val o = oldImgs[n.name]
+                if (o != null && o.size == n.size && o.modified == n.modified) {
+                    keep += o.id; finalList += o
+                } else {
+                    inserts += n; finalList += n
+                }
+            }
+            val removeIds = oldImgs.values.filter { it.id !in keep }.map { it.id }
+            val newest = finalList.maxBy { it.taken }
             val base = old ?: FolderEntity(
                 path = dir, name = f.name, root = root, imageCount = 0, totalSize = 0,
                 coverPath = null, coverMtime = 0, dirMtime = 0, newestTaken = 0, newestModified = 0,
@@ -139,15 +152,15 @@ class Scanner(private val dao: GalleryDao) {
             val entity = base.copy(
                 name = f.name,
                 root = root,
-                imageCount = imgs.size,
-                totalSize = imgs.sumOf { it.size },
+                imageCount = finalList.size,
+                totalSize = finalList.sumOf { it.size },
                 coverPath = newest.path,
                 coverMtime = newest.modified,
                 dirMtime = mtime,
                 newestTaken = newest.taken,
-                newestModified = imgs.maxOf { it.modified },
+                newestModified = finalList.maxOf { it.modified },
             )
-            dao.replaceFolder(entity, imgs)
+            dao.applyFolderDiff(entity, removeIds, inserts)
             seen += dir
             images.addAndGet(imgs.size)
         }

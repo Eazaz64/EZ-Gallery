@@ -165,6 +165,15 @@ object AppIcons {
     val Plus = stroke("M12 5v14M5 12h14")
     val Search = stroke("M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14z", "M20 20l-4-4")
     val Folder = stroke("M3 6h6l2 2h10v11H3z")
+    val Share = stroke("M18 3a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M6 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M18 15a3 3 0 1 0 0 6a3 3 0 1 0 0-6z", "M8.6 13.5l6.8 4M15.4 6.5l-6.8 4")
+    val Copy = stroke("M9 9h11v11H9z", "M5 15H4V4h11v1")
+    val Crop = stroke("M6 2v14a2 2 0 0 0 2 2h14", "M18 22V8a2 2 0 0 0-2-2H2")
+    val RotateLeft = stroke("M3 4v6h6", "M3.5 14a8.5 8.5 0 1 0 2-8.5L3 10")
+    val RotateRight = stroke("M21 4v6h-6", "M20.5 14a8.5 8.5 0 1 1-2-8.5L21 10")
+    val FlipH = stroke("M12 3v18", "M8 7L3 12l5 5z", "M16 7l5 5-5 5z")
+    val FlipV = stroke("M3 12h18", "M7 8l5-5 5 5z", "M7 16l5 5 5-5z")
+    val Sun = stroke("M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8z", "M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4")
+    val Resize = stroke("M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7")
     val Image = stroke("M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M3 16l5-5 5 5 3-3 5 5", "M16 8.5h.01")
 }
 

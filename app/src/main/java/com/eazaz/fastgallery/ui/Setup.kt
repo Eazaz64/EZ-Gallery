@@ -2,7 +2,6 @@ package com.eazaz.fastgallery.ui
 
 import android.content.Intent
 import android.net.Uri
-import android.provider.DocumentsContract
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +53,8 @@ import androidx.compose.ui.unit.sp
 import com.eazaz.fastgallery.AppViewModel
 import com.eazaz.fastgallery.Screen
 import com.eazaz.fastgallery.data.AppSettings
+import com.eazaz.fastgallery.data.shortPath
+import com.eazaz.fastgallery.data.treeUriToPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -91,23 +92,6 @@ fun PermissionScreen() {
 }
 
 // =================== Main folders ===================
-
-/** Internal storage of the CURRENT user: /storage/emulated/0 in the main space,
- *  /storage/emulated/10 (or another number) in Xiaomi Second Space / work profile. */
-fun primaryStorage(): String = android.os.Environment.getExternalStorageDirectory().absolutePath.trimEnd('/')
-
-/** Short form for display: /Pictures/My instead of /storage/emulated/0/Pictures/My */
-fun shortPath(p: String): String = p.removePrefix(primaryStorage())
-
-/** content://...tree/primary:Pictures/My  ->  <primaryStorage>/Pictures/My */
-fun treeUriToPath(uri: Uri): String? {
-    val id = try { DocumentsContract.getTreeDocumentId(uri) } catch (_: Exception) { return null }
-    val parts = id.split(":", limit = 2)
-    val vol = parts[0]
-    val rel = parts.getOrElse(1) { "" }.trim('/')
-    val base = if (vol.equals("primary", ignoreCase = true)) primaryStorage() else "/storage/$vol"
-    return if (rel.isEmpty()) base else "$base/$rel"
-}
 
 @Composable
 fun RootsScreen(vm: AppViewModel, firstRun: Boolean) {

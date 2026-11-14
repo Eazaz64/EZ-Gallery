@@ -37,8 +37,8 @@ private const val DUR = 300
 
 private fun AnimatedContentTransitionScope<Entry>.screenTransition(from: Entry, to: Entry): ContentTransform {
     val forward = to.depth >= from.depth
-    val media = to.screen is Screen.Viewer || to.screen is Screen.Slideshow
-    val leavingMedia = from.screen is Screen.Viewer || from.screen is Screen.Slideshow
+    val media = to.screen is Screen.Viewer || to.screen is Screen.Slideshow || to.screen is Screen.Editor
+    val leavingMedia = from.screen is Screen.Viewer || from.screen is Screen.Slideshow || from.screen is Screen.Editor
     return when {
         // Opening an image or a slideshow: zoom + fade in, like expanding from the grid.
         forward && media ->
@@ -76,7 +76,7 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
     }
     val top = vm.stack.lastOrNull() ?: Screen.Home
     // Status/navigation bar icons: dark on light backgrounds, light on dark ones.
-    val barColor = if (top is Screen.Viewer || top is Screen.Slideshow) colors.barBg else colors.appBg
+    val barColor = if (top is Screen.Viewer || top is Screen.Slideshow || top is Screen.Editor || vm.externalUri != null) colors.barBg else colors.appBg
     LaunchedEffect(barColor) {
         val t = android.graphics.Color.TRANSPARENT
         val style = if (barColor.luminance() < 0.5f) SystemBarStyle.dark(t) else SystemBarStyle.light(t, t)
@@ -85,7 +85,12 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
 
     AppTheme(colors) {
         Box(Modifier.fillMaxSize().background(colors.appBg)) {
+            val ext = vm.externalUri
             when {
+                ext != null -> ExternalViewer(vm, ext) {
+                    vm.closeExternal()
+                    if (vm.stack.size <= 1) activity.finish()
+                }
                 !vm.hasPermission -> PermissionScreen()
                 s.roots.isEmpty() -> RootsScreen(vm, firstRun = true)
                 else -> {
@@ -99,7 +104,7 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
                         modifier = Modifier.fillMaxSize(),
                     ) { e ->
                         val scr = e.screen
-                        Box(Modifier.fillMaxSize().background(if (scr is Screen.Viewer || scr is Screen.Slideshow) colors.viewerBg else colors.appBg)) {
+                        Box(Modifier.fillMaxSize().background(if (scr is Screen.Viewer || scr is Screen.Slideshow || scr is Screen.Editor) colors.viewerBg else colors.appBg)) {
                             holder.SaveableStateProvider(scr.toString()) {
                                 when (scr) {
                                     Screen.Home -> HomeScreen(vm)
@@ -110,6 +115,7 @@ fun AppRoot(vm: AppViewModel, activity: ComponentActivity) {
                                     Screen.Colors -> ColorsScreen(vm)
                                     Screen.Roots -> RootsScreen(vm, firstRun = false)
                                     Screen.Scan -> ScanScreen(vm)
+                                    is Screen.Editor -> EditorScreen(vm, scr.path)
                                 }
                             }
                         }

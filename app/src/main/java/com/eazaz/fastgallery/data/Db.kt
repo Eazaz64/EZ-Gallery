@@ -64,6 +64,9 @@ abstract class GalleryDao {
     @Query("SELECT * FROM images WHERE folder = :folder")
     abstract fun imagesFlow(folder: String): Flow<List<ImageEntity>>
 
+    @Query("SELECT * FROM images WHERE folder = :folder")
+    abstract suspend fun images(folder: String): List<ImageEntity>
+
     @Query("SELECT name FROM images WHERE folder = :folder")
     abstract suspend fun imageNames(folder: String): List<String>
 
@@ -120,6 +123,14 @@ abstract class GalleryDao {
     open suspend fun replaceFolder(f: FolderEntity, imgs: List<ImageEntity>) {
         deleteImagesOf(f.path)
         imgs.chunked(2000).forEach { insertImages(it) }
+        upsertFolder(f)
+    }
+
+    /** Update a folder but keep the IDs of images that did not change (so open screens don't jump). */
+    @Transaction
+    open suspend fun applyFolderDiff(f: FolderEntity, removeIds: List<Long>, inserts: List<ImageEntity>) {
+        removeIds.chunked(500).forEach { deleteImageIds(it) }
+        inserts.chunked(2000).forEach { insertImages(it) }
         upsertFolder(f)
     }
 
