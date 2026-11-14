@@ -51,6 +51,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setLastViewed(folder: String, index: Int) { lastViewed[folder] = index }
     fun takeLastViewed(folder: String): Int? = lastViewed.remove(folder)
 
+    init {
+        // Main folders saved with the wrong user's storage path (e.g. /storage/emulated/0
+        // while running in Second Space at /storage/emulated/10): fix them automatically.
+        val primary = android.os.Environment.getExternalStorageDirectory().absolutePath.trimEnd('/')
+        val fixed = settings.state.roots.map { r ->
+            val m = Regex("^/storage/emulated/\\d+").find(r)
+            if (m != null && m.value != primary && !java.io.File(r).isDirectory) primary + r.substring(m.value.length) else r
+        }.distinct()
+        if (fixed != settings.state.roots) settings.update { it.copy(roots = fixed) }
+    }
+
     fun onResume(granted: Boolean) {
         hasPermission = granted
         if (granted && settings.state.roots.isNotEmpty() && !autoScanned) {

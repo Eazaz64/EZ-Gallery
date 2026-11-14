@@ -2,6 +2,9 @@ package com.eazaz.fastgallery.ui
 
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -124,8 +127,13 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
             )
         }
 
-        if (bars) {
-            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(c.barBg).statusBarsPadding()) {
+        AnimatedVisibility(
+            visible = bars,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { -it / 2 },
+            exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { -it / 2 },
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Column(Modifier.fillMaxWidth().background(c.barBg).statusBarsPadding()) {
                 TopBar(
                     title = current.name,
                     subtitle = "${fmtNum(page + 1)} of ${fmtNum(list.size)}",
@@ -145,8 +153,15 @@ fun ViewerScreen(vm: AppViewModel, folderPath: String, startIndex: Int) {
                     }
                 }
             }
+        }
+        AnimatedVisibility(
+            visible = bars,
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 2 },
+            exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { it / 2 },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             Row(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(c.barBg).navigationBarsPadding().height(76.dp),
+                Modifier.fillMaxWidth().background(c.barBg).navigationBarsPadding().height(76.dp),
             ) {
                 BottomAction(AppIcons.Play, "Slideshow", c.accent, Modifier.weight(1f)) { dialog = "slideshow" }
                 BottomAction(AppIcons.Wallpaper, "Wallpaper", c.barText, Modifier.weight(1f)) { dialog = "wallpaper" }
@@ -260,7 +275,12 @@ fun SlideshowScreen(vm: AppViewModel, folderPath: String, start: Int) {
             }
         }
 
-        if (controls) {
+        AnimatedVisibility(
+            visible = controls,
+            enter = fadeIn(tween(200)), exit = fadeOut(tween(250)),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+          Box(Modifier.fillMaxSize()) {
             Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(16.dp)) {
                 LinearProgressIndicator(
                     progress = { (pos + 1).toFloat() / order.size },
@@ -299,6 +319,7 @@ fun SlideshowScreen(vm: AppViewModel, folderPath: String, start: Int) {
                 )
                 IconBtn(AppIcons.Close, "Stop slideshow", c.barText) { vm.back() }
             }
+          }
         }
     }
 }

@@ -92,13 +92,20 @@ fun PermissionScreen() {
 
 // =================== Main folders ===================
 
-/** content://...tree/primary:Pictures/My  ->  /storage/emulated/0/Pictures/My */
+/** Internal storage of the CURRENT user: /storage/emulated/0 in the main space,
+ *  /storage/emulated/10 (or another number) in Xiaomi Second Space / work profile. */
+fun primaryStorage(): String = android.os.Environment.getExternalStorageDirectory().absolutePath.trimEnd('/')
+
+/** Short form for display: /Pictures/My instead of /storage/emulated/0/Pictures/My */
+fun shortPath(p: String): String = p.removePrefix(primaryStorage())
+
+/** content://...tree/primary:Pictures/My  ->  <primaryStorage>/Pictures/My */
 fun treeUriToPath(uri: Uri): String? {
     val id = try { DocumentsContract.getTreeDocumentId(uri) } catch (_: Exception) { return null }
     val parts = id.split(":", limit = 2)
     val vol = parts[0]
     val rel = parts.getOrElse(1) { "" }.trim('/')
-    val base = if (vol.equals("primary", ignoreCase = true)) "/storage/emulated/0" else "/storage/$vol"
+    val base = if (vol.equals("primary", ignoreCase = true)) primaryStorage() else "/storage/$vol"
     return if (rel.isEmpty()) base else "$base/$rel"
 }
 
@@ -131,7 +138,7 @@ fun RootsScreen(vm: AppViewModel, firstRun: Boolean) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(root.removePrefix("/storage/emulated/0"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(shortPath(root), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
                             if (inRoot.isEmpty()) "Not scanned yet" else "${fmtNum(inRoot.size)} folders · ${fmtNum(inRoot.sumOf { it.imageCount })} images",
                             fontSize = 12.sp, color = c.subtext,
@@ -213,7 +220,7 @@ fun ScanScreen(vm: AppViewModel) {
             Text("${fmtNum(p.done)} / ${fmtNum(p.total)} folders", fontSize = 14.sp, color = c.subtext)
         }
         Text(
-            if (p.current.isEmpty()) "" else "Scanning ${p.current.removePrefix("/storage/emulated/0")}",
+            if (p.current.isEmpty()) "" else "Scanning ${shortPath(p.current)}",
             fontSize = 12.sp, color = c.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp),
         )
         Spacer(Modifier.weight(1f))
@@ -282,7 +289,7 @@ fun SettingsScreen(vm: AppViewModel) {
             Group("Storage")
             SettingRow(
                 "Main folders",
-                s.roots.joinToString(" + ") { it.removePrefix("/storage/emulated/0") }.ifEmpty { "None" } + " · only these are scanned",
+                s.roots.joinToString(" + ") { shortPath(it) }.ifEmpty { "None" } + " · only these are scanned",
                 "Change",
             ) { vm.push(Screen.Roots) }
             SettingRow(

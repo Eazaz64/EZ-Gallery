@@ -1,7 +1,14 @@
 package com.eazaz.fastgallery.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -232,9 +239,11 @@ fun FolderScreen(vm: AppViewModel, path: String) {
     val sortAsc = (if (s.rememberPerFolder) folder?.sortAsc else null) ?: s.imageSortAsc
 
     Column(Modifier.fillMaxSize().systemBarsPadding()) {
-        if (selecting) {
+        Crossfade(targetState = selecting, animationSpec = tween(180), label = "bar") { selMode ->
+        if (selMode) {
+          Column(Modifier.fillMaxWidth().background(c.chipBg)) {
             Row(
-                Modifier.fillMaxWidth().height(60.dp).background(c.chipBg).padding(horizontal = 4.dp),
+                Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconBtn(AppIcons.Close, "Cancel selection") { selected = emptySet() }
@@ -250,7 +259,13 @@ fun FolderScreen(vm: AppViewModel, path: String) {
                     Text(if (selected.size == list.size) "Select none" else "Select all", color = c.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
             }
+            Text(
+                "Tip: long-press, then drag to select a range", fontSize = 12.sp, color = c.subtext,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 14.dp),
+            )
+          }
         } else {
+          Column(Modifier.fillMaxWidth()) {
             TopBar(
                 title = folder?.name ?: File(path).name,
                 subtitle = "${fmtNum(list.size)} images",
@@ -265,6 +280,8 @@ fun FolderScreen(vm: AppViewModel, path: String) {
                 Spacer(Modifier.size(10.dp))
                 Text("Pinch to change columns", fontSize = 12.sp, color = c.subtext)
             }
+          }
+        }
         }
 
         Box(Modifier.weight(1f)) {
@@ -361,7 +378,11 @@ fun FolderScreen(vm: AppViewModel, path: String) {
             }
         }
 
-        if (selecting) {
+        AnimatedVisibility(
+            visible = selecting,
+            enter = expandVertically(tween(220)) + fadeIn(tween(220)),
+            exit = shrinkVertically(tween(200)) + fadeOut(tween(160)),
+        ) {
             Row(Modifier.fillMaxWidth().height(72.dp).background(c.appBg)) {
                 BottomAction(AppIcons.Move, "Move to", c.text, Modifier.weight(1f)) { showMove = true }
                 BottomAction(AppIcons.Trash, "Delete", c.danger, Modifier.weight(1f)) { showDelete = true }
